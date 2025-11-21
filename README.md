@@ -43,6 +43,7 @@
         # Start ngrok, auto-open the URL in the browser, generate files
         ngrok_get_ip.sh --start-ngrok --open
 
-
+ PS.: chmod +x to use the script and if you're lazy, copy to your user bin directory (eg.: /usr/local/bin in my case - your can remove the .sh also)
+ PS2.: If more than 1 person likes it i'll code a decent go program or at least a TUI. <3
 
  idea shamelessly stolen from @Fathraganteng
