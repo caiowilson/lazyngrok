@@ -1,4 +1,4 @@
-    Usage: ngrok_get_ip.sh [OPTIONS] [DEST_DIR]
+    Usage: lazyngrok.sh [OPTIONS] [DEST_DIR]
     
     Fetch Ngrok tunnel data from:
         http://localhost:4040/api/tunnels
