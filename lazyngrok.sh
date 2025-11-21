@@ -12,6 +12,10 @@
     GENERATED_TXT="generated.txt"
     NGROK_API_URL="http://localhost:4040/api/tunnels"
     
+    # Default command to start ngrok (EDIT THIS IF YOU WANT)
+    # Example: ngrok http 8080
+    NGROK_START_CMD=(ngrok http 80)
+    
     # Mode flags
     HAS_JQ=0
     URL_ONLY=0
@@ -19,6 +23,7 @@
     AUTO_OPEN=0
     QUIET=0
     DEST_DIR="${PWD}"
+    START_NGROK=0
     
     log() {
         if [[ "${QUIET}" -eq 0 ]]; then
@@ -35,6 +40,7 @@
     
     Options:
         -h, --help        Show this help and exit
+        --start-ngrok     Start ngrok automatically (default: 'ngrok http 80')
         --url-only        Print first public URL and exit (requires jq)
         --watch N         Repeat every N seconds (no url-only in this mode)
         --open            Open first public URL in default browser (macOS)
@@ -49,6 +55,9 @@
     Also created in the current working directory:
           - ${OUTPUT_TXT}        (raw JSON data)
           - ${GENERATED_TXT}     (generation timestamp)
+    
+    Default ngrok start command:
+          ${NGROK_START_CMD[*]}
     EOF
     }
     
@@ -64,6 +73,13 @@
             HAS_JQ=0
             log "Warning: 'jq' not found. Will not extract public URLs."
         fi
+    
+        if [[ "${START_NGROK}" -eq 1 ]]; then
+            if ! command -v ngrok >/dev/null 2>&1; then
+                echo "Error: 'ngrok' is required for --start-ngrok but not found in PATH."
+                exit 1
+            fi
+        fi
     }
     
     parse_args() {
@@ -72,6 +88,10 @@
                 -h|--help)
                     usage
                     exit 0
+                    ;;
+                --start-ngrok)
+                    START_NGROK=1
+                    shift
                     ;;
                 --url-only)
                     URL_ONLY=1
@@ -135,9 +155,48 @@
         fi
     }
     
+    is_ngrok_running() {
+        ps aux | grep "[n]grok" >/dev/null 2>&1
+    }
+    
+    wait_for_ngrok_api() {
+        # Wait up to ~10 seconds for the API to come up
+        for i in {1..10}; do
+            if curl -fsS "${NGROK_API_URL}" >/dev/null 2>&1; then
+                log "Ngrok API is up."
+                return 0
+            fi
+            log "Waiting for Ngrok API... (${i}/10)"
+            sleep 1
+        done
+        echo "Error: Ngrok API did not become ready on ${NGROK_API_URL}."
+        exit 1
+    }
+    
+    start_ngrok_if_requested() {
+        if [[ "${START_NGROK}" -ne 1 ]]; then
+            return
+        fi
+    
+        if is_ngrok_running; then
+            log "Ngrok is already running; not starting another instance."
+            wait_for_ngrok_api
+            return
+        fi
+    
+        log "Starting ngrok: ${NGROK_START_CMD[*]}"
+        # Start in the background, log output to ngrok.log
+        nohup "${NGROK_START_CMD[@]}" > ngrok.log 2>&1 & disown || {
+            echo "Error: failed to start ngrok."
+            exit 1
+        }
+    
+        wait_for_ngrok_api
+    }
+    
     check_ngrok() {
         log "Checking if ngrok is running..."
-        if ps aux | grep "[n]grok" >/dev/null 2>&1; then
+        if is_ngrok_running; then
             log "Ngrok process detected."
         else
             log "No ngrok process detected. The API call may fail if ngrok is not running."
@@ -265,6 +324,7 @@
         parse_args "$@"
         ensure_dependencies
         print_header
+        start_ngrok_if_requested
     
         # Simple url-only mode: fetch once, print URL, exit
         if [[ "${URL_ONLY}" -eq 1 ]]; then
@@ -296,4 +356,3 @@
     }
     
     main "$@"
-
