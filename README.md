@@ -45,4 +45,4 @@
 
 
 
- idea stolen shamelessly from https://github.com/Fathraganteng
+ idea shamelessly stolen from @Fathraganteng
