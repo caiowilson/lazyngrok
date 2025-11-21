@@ -17,7 +17,6 @@
     NGROK_START_CMD=(ngrok http 80)
     
     # Mode flags
-    HAS_JQ=0
     URL_ONLY=0
     WATCH_INTERVAL=0
     AUTO_OPEN=0
@@ -41,23 +40,28 @@
     Options:
         -h, --help        Show this help and exit
         --start-ngrok     Start ngrok automatically (default: 'ngrok http 80')
-        --url-only        Print first public URL and exit (requires jq)
-        --watch N         Repeat every N seconds (no url-only in this mode)
+        --url-only        Print first public URL and exit
+        --watch N         Repeat every N seconds (no --url-only in this mode)
         --open            Open first public URL in default browser (macOS)
         --quiet           Minimal output (no logs/header)
     
     DEST_DIR (optional, default: current directory):
         Directory where these files are written:
-          - ip_data.html         (same content as ${OUTPUT_TXT})
-          - generated_time.html  (same content as ${GENERATED_TXT})
-          - ngrok_urls.txt       (list of public URLs, if jq is installed)
+          - ip_data.html         (same content as output.txt)
+          - generated_time.html  (same content as generated.txt)
+          - ngrok_urls.txt       (list of public URLs, extracted via shell tools)
     
-    Also created in the current working directory:
-          - ${OUTPUT_TXT}        (raw JSON data)
-          - ${GENERATED_TXT}     (generation timestamp)
+    Files created in the current working directory:
+          - output.txt           (raw JSON data from Ngrok API)
+          - generated.txt        (generation timestamp)
     
-    Default ngrok start command:
+    Default ngrok start command (used with --start-ngrok):
           ${NGROK_START_CMD[*]}
+    
+    NOTE:
+        This script tries to extract URLs using standard shell tools (grep/sed).
+        If extraction fails, it will suggest installing 'jq' with the package
+        manager of your choice (e.g., 'brew install jq', 'apt install jq', etc.).
     EOF
     }
     
@@ -65,13 +69,6 @@
         if ! command -v curl >/dev/null 2>&1; then
             echo "Error: 'curl' is required but not installed."
             exit 1
-        fi
-    
-        if command -v jq >/dev/null 2>&1; then
-            HAS_JQ=1
-        else
-            HAS_JQ=0
-            log "Warning: 'jq' not found. Will not extract public URLs."
         fi
     
         if [[ "${START_NGROK}" -eq 1 ]]; then
@@ -224,23 +221,35 @@
         fi
     }
     
+    # Shell-only extraction of first public_url (no jq)
     get_first_url() {
-        if [[ "${HAS_JQ}" -ne 1 ]]; then
-            echo ""
-            return
-        fi
-        jq -r '.tunnels[0].public_url // empty' "${OUTPUT_TXT}" 2>/dev/null || echo ""
+        # Extract first "public_url":"..." from the JSON
+        grep -o '"public_url":"[^"]*"' "${OUTPUT_TXT}" 2>/dev/null \
+        | head -n 1 \
+        | sed 's/.*"public_url":"\([^"]*\)".*/\1/'
+    }
+    
+    print_jq_suggestion() {
+        cat <<'EOF'
+Shell-only extraction failed to find a public URL.
+
+You can try installing 'jq' for more robust JSON parsing, using the
+package manager of your choice, for example:
+
+    brew install jq          # macOS (Homebrew)
+    apt install jq           # Debian/Ubuntu
+    dnf install jq           # Fedora/RHEL
+    pacman -S jq             # Arch Linux
+    choco install jq         # Windows (Chocolatey)
+
+Then you could update this script to use jq for JSON parsing.
+EOF
     }
     
     print_first_url_and_exit() {
-        if [[ "${HAS_JQ}" -ne 1 ]]; then
-            echo "Error: --url-only requires 'jq' to be installed."
-            exit 1
-        fi
-    
-        first_url=$(get_first_url)
+        first_url=$(get_first_url || true)
         if [[ -z "${first_url}" ]]; then
-            echo "No public URL found."
+            print_jq_suggestion
             exit 1
         fi
     
@@ -249,16 +258,15 @@
     }
     
     extract_urls_if_possible() {
-        if [[ "${HAS_JQ}" -ne 1 ]]; then
-            return
-        fi
+        log "Extracting public URLs (grep/sed)..."
     
-        log "Extracting public URLs using jq..."
         local urls
-        urls=$(jq -r '.tunnels[].public_url' "${OUTPUT_TXT}" 2>/dev/null || true)
+        urls=$(grep -o '"public_url":"[^"]*"' "${OUTPUT_TXT}" 2>/dev/null \
+               | sed 's/.*"public_url":"\([^"]*\)".*/\1/')
     
         if [[ -z "${urls}" ]]; then
-            log "No public URLs found in JSON."
+            log "No public URLs found in JSON with shell-only extraction."
+            log "If this keeps happening, consider installing 'jq' for robust JSON parsing."
             return
         fi
     
@@ -296,14 +304,11 @@
         if [[ "${AUTO_OPEN}" -ne 1 ]]; then
             return
         fi
-        if [[ "${HAS_JQ}" -ne 1 ]]; then
-            log "Cannot auto-open URL: 'jq' is not installed."
-            return
-        fi
     
-        first_url=$(get_first_url)
+        first_url=$(get_first_url || true)
         if [[ -z "${first_url}" ]]; then
-            log "Cannot auto-open URL: no public URL found."
+            log "Cannot auto-open URL: shell-only extraction failed."
+            log "Consider installing 'jq' for robust JSON parsing."
             return
         fi
     
